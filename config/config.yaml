@@ -1,0 +1,183 @@
+# Multi-Omics Integration Configuration
+# Template configuration file - customize for your dataset
+
+project:
+  name: "omics_integration"
+  version: "1.0.0"
+  description: "Multi-omics autoencoder-GNN integration pipeline"
+
+# ==============================================================================
+# DATA CONFIGURATION
+# ==============================================================================
+# IMPORTANT: Replace these paths and sample definitions with your own data
+
+data:
+  samples:
+    total: 20  # REPLACE: Total number of samples in your dataset
+    
+    # REPLACE: Define your sample groups below
+    # Example structure provided - modify according to your experimental design
+    groups:
+      - name: "group_A_tissue1"
+        samples: ["S01", "S02", "S03", "S04"]  # REPLACE with your sample IDs
+        tissue: "tissue_type_1"                 # REPLACE
+        tissue_label: 0
+        condition: "condition_A"                # REPLACE (e.g., treatment, geography, genotype)
+        condition_label: 0
+        
+      - name: "group_A_tissue2"
+        samples: ["S05", "S06", "S07", "S08"]
+        tissue: "tissue_type_2"
+        tissue_label: 1
+        condition: "condition_A"
+        condition_label: 0
+        
+      - name: "group_B_tissue1"
+        samples: ["S09", "S10", "S11", "S12"]
+        tissue: "tissue_type_1"
+        tissue_label: 0
+        condition: "condition_B"
+        condition_label: 1
+        
+      - name: "group_B_tissue2"
+        samples: ["S13", "S14", "S15", "S16"]
+        tissue: "tissue_type_2"
+        tissue_label: 1
+        condition: "condition_B"
+        condition_label: 1
+
+  transcriptome:
+    path: "data/raw/gene_expression.csv"      # REPLACE with your data path
+    expected_genes: 10000                      # REPLACE: Approximate gene count
+    fpkm_threshold: 0.0                        # Minimum expression threshold
+    description: "RNA-seq gene expression data"
+
+  metabolome:
+    path: "data/raw/metabolite_abundance.csv" # REPLACE with your data path
+    expected_metabolites: 500                  # REPLACE: Approximate metabolite count
+    min_detection_rate: 0.5                    # Filter metabolites detected in <50% samples
+    description: "LC-MS metabolite profiling data"
+
+# ==============================================================================
+# PREPROCESSING
+# ==============================================================================
+
+preprocessing:
+  gene_expression:
+    transform: "log2"                          # log2(x + 1) transformation
+    normalization: "zscore"                    # Z-score normalization per gene
+    remove_low_expr: false
+    missing_value_threshold: 0.2               # Remove genes with >20% missing values
+
+  metabolite:
+    transform: "log2"                          # log2(x + 1) transformation
+    normalization: "zscore"                    # Z-score normalization per metabolite
+    imputation: "zero"                         # Options: "zero", "knn", "median"
+    missing_value_threshold: 0.3               # Remove metabolites with >30% missing values
+
+# ==============================================================================
+# HARDWARE CONFIGURATION
+# ==============================================================================
+
+hardware:
+  device_preference: ["mps", "cuda", "cpu"]    # Priority order for device selection
+  mixed_precision: false                       # Use mixed precision training (if supported)
+  num_workers: 4                               # Number of workers for data loading
+
+# ==============================================================================
+# PIPELINE SETTINGS
+# ==============================================================================
+
+pipeline:
+  reproducibility:
+    random_seed: 42                            # Random seed for reproducibility
+    deterministic: true                        # Use deterministic algorithms
+
+  output:
+    save_intermediate: true                    # Save intermediate results
+    figure_format: "png"                       # Output figure format: "png", "pdf", "svg"
+    figure_dpi: 300                            # Standard figure DPI
+    high_res_dpi: 600                          # High-resolution figure DPI
+
+# ==============================================================================
+# MODEL ARCHITECTURE
+# ==============================================================================
+
+models:
+  gene_autoencoder:
+    latent_dim: 128                            # Latent space dimensionality for genes
+    hidden_dims: [2048, 512, 256]              # Hidden layer sizes (encoder)
+    dropout: 0.2                               # Dropout rate
+    activation: "relu"                         # Activation function
+    
+  metabolite_autoencoder:
+    latent_dim: 64                             # Latent space dimensionality for metabolites
+    hidden_dims: [256, 128]                    # Hidden layer sizes (encoder)
+    dropout: 0.2                               # Dropout rate
+    activation: "relu"                         # Activation function
+
+  gnn:
+    hidden_dims: [256, 128, 64]                # GNN hidden layer dimensions
+    n_heads: 4                                 # Number of attention heads (for GAT)
+    dropout: 0.2                               # Dropout rate
+    similarity_threshold: 0.5                  # Threshold for creating graph edges
+
+# ==============================================================================
+# TRAINING CONFIGURATION
+# ==============================================================================
+
+training:
+  autoencoder:
+    epochs: 100                                # Maximum training epochs
+    batch_size: 32                             # Batch size
+    learning_rate: 0.001                       # Initial learning rate
+    weight_decay: 1e-5                         # L2 regularization
+    scheduler: "plateau"                       # LR scheduler: "plateau", "step", "cosine"
+    early_stopping_patience: 15                # Stop if no improvement for N epochs
+    validation_split: 0.2                      # Fraction of data for validation
+
+  gnn:
+    epochs: 200                                # Maximum training epochs
+    batch_size: 64                             # Batch size
+    learning_rate: 0.001                       # Initial learning rate
+    weight_decay: 1e-5                         # L2 regularization
+    task_weights:                              # Multi-task learning weights
+      tissue: 1.0
+      condition: 0.5
+
+# ==============================================================================
+# ANALYSIS CONFIGURATION
+# ==============================================================================
+
+analysis:
+  correlation:
+    method: "spearman"                         # "spearman" or "pearson"
+    significance_threshold: 0.05               # P-value cutoff
+    fdr_correction: true                       # Apply FDR correction
+    min_correlation: 0.6                       # Minimum absolute correlation to report
+
+  gene_filtering:
+    target_metabolite: "METABOLITE_ID"         # REPLACE: Target metabolite ID for correlation
+    top_k: 100                                 # Number of top genes to report
+    annotation_filter: null                    # Optional: filter by gene annotation (e.g., "enzyme")
+
+# ==============================================================================
+# VISUALIZATION SETTINGS
+# ==============================================================================
+
+visualization:
+  color_palettes:
+    tissue: ["#E64B35", "#4DBBD5", "#00A087", "#3C5488"]  # Custom tissue colors
+    condition: ["#F39B7F", "#8491B4"]                      # Custom condition colors
+
+  font_size:
+    title: 14
+    label: 12
+    tick: 10
+    legend: 10
+
+  figure_size:
+    default: [8, 6]
+    wide: [12, 6]
+    tall: [8, 10]
+    square: [8, 8]
