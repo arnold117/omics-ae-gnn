@@ -1,0 +1,34 @@
+# Hardware Configuration
+# Device selection and acceleration settings for MPS/CUDA/CPU
+
+mps:
+  enabled: true
+  fallback_cpu_threshold: 100000000  # Switch to CPU if tensor has >100M elements
+  description: "Apple Metal Performance Shaders (macOS GPU acceleration)"
+
+cuda:
+  enabled: false  # Set to true when using CUDA-enabled machine
+  device_ids: [0]  # GPU device IDs to use
+  benchmark: true  # Enable cudnn benchmark for performance
+  deterministic: false  # Set true for reproducibility (may reduce performance)
+  description: "NVIDIA CUDA GPU acceleration"
+
+cpu:
+  threads: 8  # Number of CPU threads for parallel operations
+  mkl_threads: 8  # MKL threads for numerical operations
+  description: "CPU fallback option"
+
+training:
+  # Batch sizes (adjust based on sample count and GPU memory)
+  batch_size:
+    autoencoder: 8  # For AutoEncoder training
+    gnn: 4          # For GNN training
+
+  # Precision settings
+  precision:
+    autoencoder: "float32"  # MPS doesn't fully support float16
+    gnn: "float32"
+
+  # Memory optimization
+  gradient_accumulation_steps: 1
+  pin_memory: true  # Faster data transfer to GPU

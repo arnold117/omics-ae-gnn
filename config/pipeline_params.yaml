@@ -1,0 +1,131 @@
+# Pipeline Model Parameters
+# Hyperparameters for AutoEncoder, GNN, and analysis
+
+autoencoder:
+  architecture:
+    encoder_layers: [4096, 1024, 256, 64]
+    latent_dim: 64
+    decoder_layers: [256, 1024, 4096]
+    activation: "relu"
+    dropout: 0.3
+    batch_norm: true
+    l2_regularization: 0.001
+
+  training:
+    epochs: 200
+    learning_rate: 0.001
+    optimizer: "adam"
+    loss: "mse"
+    early_stopping:
+      patience: 20
+      min_delta: 0.001
+      monitor: "val_loss"
+    scheduler:
+      type: "reduce_on_plateau"
+      factor: 0.5
+      patience: 10
+
+  validation:
+    split_ratio: 0.2
+    min_samples_per_group: 1
+
+gnn:
+  graph:
+    gene_gene_threshold: 0.8
+    gene_metab_threshold: 0.7
+    edge_types:
+      - ["gene", "coexpresses", "gene"]
+      - ["gene", "correlates", "metabolite"]
+    max_degree: 100
+    remove_self_loops: true
+
+  architecture:
+    conv_type: "GATConv"
+    hidden_channels: 128
+    num_layers: 2
+    heads: 4
+    dropout: 0.3
+    aggregation: "mean"
+
+  training:
+    epochs: 100
+    learning_rate: 0.001
+    optimizer: "adam"
+    loss: "cross_entropy"
+    early_stopping:
+      patience: 15
+      min_delta: 0.001
+
+  task:
+    type: "node_classification"
+    target: "tissue"
+    num_classes: 4
+
+shap:
+  method: "kernel"
+  n_samples: 100
+  max_evals: 1000
+
+  analysis:
+    top_genes: 100
+    feature_importance_threshold: 0.01
+
+  visualization:
+    summary_plot_type: "bar"
+    max_display: 20
+
+gene_ranking:
+  criteria:
+    shap_weight: 0.4
+    variance_weight: 0.3
+    correlation_weight: 0.3
+
+  multi_evidence_weights:
+    correlation: 0.4
+    ae_importance: 0.3
+    gnn_importance: 0.2
+    blast_bonus: 0.1
+
+  variance_metric: "cv"
+
+  alkaloid_genes:
+    # Known gene families for BLAST/HMM integration
+    # REPLACE: List your gene families of interest
+    reference_genes:
+      - "FamilyA"
+      - "FamilyB"
+      - "FamilyC"
+
+  output:
+    top_n: 500
+    include_annotations: true
+
+pathway_enrichment:
+  databases:
+    - "KEGG"
+    - "GO"
+
+  kegg:
+    organism: "plant"
+    p_value_threshold: 0.05
+    q_value_threshold: 0.1
+
+  go:
+    categories: ["BP", "MF", "CC"]
+    p_value_threshold: 0.05
+
+network_analysis:
+  community_detection:
+    method: "louvain"
+    resolution: 1.0
+
+  centrality:
+    measures:
+      - "degree"
+      - "betweenness"
+      - "eigenvector"
+    top_n_hubs: 50
+
+  subgraph_extraction:
+    max_nodes: 200
+    min_edge_weight: 0.5

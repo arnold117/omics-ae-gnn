@@ -5,7 +5,7 @@ Integrates gene and metabolite latent representations through graph structure.
 Uses sample similarity as edges to capture relationships.
 
 Input: Gene latent (64-dim) + Metabolite latent (64-dim) = 128-dim per sample
-Graph: 21 nodes (samples) with edges based on similarity
+Graph: N nodes (samples) with edges based on similarity
 Output: Sample embeddings for downstream tasks (tissue/geography classification)
 
 Features:
@@ -13,6 +13,7 @@ Features:
 - Multi-head attention for capturing diverse relationships
 - Residual connections for gradient flow
 - Graph pooling for sample-level predictions
+- Attention weight export for explainability
 """
 
 import torch
@@ -72,7 +73,8 @@ class GraphAttentionLayer(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        adj: torch.Tensor
+        adj: torch.Tensor,
+        return_attention: bool = False
     ) -> torch.Tensor:
         """
         Forward pass
@@ -80,13 +82,16 @@ class GraphAttentionLayer(nn.Module):
         Args:
             x: Node features (batch_size, n_nodes, in_features)
             adj: Adjacency matrix (batch_size, n_nodes, n_nodes)
+            return_attention: If True, also return attention weights
 
         Returns:
             Updated node features (batch_size, n_nodes, out_features * n_heads)
-            or (batch_size, n_nodes, out_features) if concat=False
+            or (batch_size, n_nodes, out_features) if concat=False.
+            If return_attention=True, returns (output, attention_weights_list).
         """
         batch_size, n_nodes, _ = x.shape
         outputs = []
+        attention_weights = []
 
         for i in range(self.n_heads):
             # Linear transformation
@@ -107,6 +112,10 @@ class GraphAttentionLayer(nn.Module):
 
             # Softmax to get attention weights
             attention = F.softmax(attention, dim=-1)
+
+            if return_attention:
+                attention_weights.append(attention.detach())
+
             attention = self.dropout_layer(attention)
 
             # Apply attention to features
@@ -115,9 +124,13 @@ class GraphAttentionLayer(nn.Module):
 
         # Concatenate or average multi-head outputs
         if self.concat:
-            return torch.cat(outputs, dim=-1)
+            output = torch.cat(outputs, dim=-1)
         else:
-            return torch.mean(torch.stack(outputs), dim=0)
+            output = torch.mean(torch.stack(outputs), dim=0)
+
+        if return_attention:
+            return output, attention_weights
+        return output
 
 
 class GNNEncoder(nn.Module):
@@ -125,7 +138,7 @@ class GNNEncoder(nn.Module):
     Graph Neural Network for Multi-Omics Integration
 
     Architecture:
-        Input (128-dim) → GAT1 (256-dim, 4 heads) → GAT2 (128-dim, 4 heads) → GAT3 (64-dim, 1 head)
+        Input (128-dim) -> GAT1 (256-dim, 4 heads) -> GAT2 (128-dim, 4 heads) -> GAT3 (64-dim, 1 head)
 
     Args:
         input_dim: Input feature dimension (gene_latent + metab_latent)
@@ -196,12 +209,13 @@ class GNNEncoder(nn.Module):
             nn.BatchNorm1d(dim) for dim in hidden_dims
         ])
 
-        self.logger.info(f"Initialized GNN: {input_dim} → {hidden_dims}")
+        self.logger.info(f"Initialized GNN: {input_dim} -> {hidden_dims}")
 
     def forward(
         self,
         x: torch.Tensor,
-        adj: torch.Tensor
+        adj: torch.Tensor,
+        return_attention: bool = False
     ) -> torch.Tensor:
         """
         Forward pass
@@ -209,14 +223,21 @@ class GNNEncoder(nn.Module):
         Args:
             x: Node features (batch_size, n_nodes, input_dim)
             adj: Adjacency matrix (batch_size, n_nodes, n_nodes)
+            return_attention: If True, also return attention weights from all layers
 
         Returns:
-            Node embeddings (batch_size, n_nodes, hidden_dims[-1])
+            Node embeddings (batch_size, n_nodes, hidden_dims[-1]).
+            If return_attention=True, returns (embeddings, all_attention_weights).
         """
         h = x
+        all_attention_weights = []
 
         for i, gat_layer in enumerate(self.gat_layers):
-            h_new = gat_layer(h, adj)
+            if return_attention:
+                h_new, attn_weights = gat_layer(h, adj, return_attention=True)
+                all_attention_weights.append(attn_weights)
+            else:
+                h_new = gat_layer(h, adj)
 
             # Batch normalization (reshape for BatchNorm1d)
             batch_size, n_nodes, features = h_new.shape
@@ -230,6 +251,8 @@ class GNNEncoder(nn.Module):
             else:
                 h = F.relu(h_new)
 
+        if return_attention:
+            return h, all_attention_weights
         return h
 
     def get_config(self) -> dict:
@@ -308,7 +331,8 @@ class MultiOmicsGNN(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        adj: torch.Tensor
+        adj: torch.Tensor,
+        return_attention: bool = False
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass
@@ -316,18 +340,25 @@ class MultiOmicsGNN(nn.Module):
         Args:
             x: Node features (batch_size, n_nodes, input_dim)
             adj: Adjacency matrix (batch_size, n_nodes, n_nodes)
+            return_attention: If True, also return attention weights
 
         Returns:
-            Tuple of (embeddings, tissue_logits, geography_logits, cultivation_logits)
+            Tuple of (embeddings, tissue_logits, geography_logits, cultivation_logits).
+            If return_attention=True, returns 5-tuple with attention_weights appended.
         """
         # GNN encoding
-        embeddings = self.gnn_encoder(x, adj)
+        if return_attention:
+            embeddings, attention_weights = self.gnn_encoder(x, adj, return_attention=True)
+        else:
+            embeddings = self.gnn_encoder(x, adj)
 
         # Task-specific predictions
         tissue_logits = self.tissue_head(embeddings)
         geography_logits = self.geography_head(embeddings)
         cultivation_logits = self.cultivation_head(embeddings)
 
+        if return_attention:
+            return embeddings, tissue_logits, geography_logits, cultivation_logits, attention_weights
         return embeddings, tissue_logits, geography_logits, cultivation_logits
 
     def get_config(self) -> dict:

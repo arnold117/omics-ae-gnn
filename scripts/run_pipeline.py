@@ -6,15 +6,16 @@ Runs the complete analysis pipeline end-to-end:
   1. Data preparation (preprocessing, QC)
   2. Model training (AutoEncoders + GNN)
   3. Results analysis (visualization, correlations)
+  4. Feature importance (AE + GNN gene mapping)
+  5. Multi-evidence ranking
 
 Usage:
     python scripts/run_pipeline.py [--steps STEPS]
 
 Options:
     --steps STEPS    Comma-separated list of steps to run (default: all)
-                     Options: prep, train, analyze, all
+                     Options: prep, train, analyze, importance, rank, all
     --skip-qc        Skip QC plot generation (faster)
-    --help           Show this help message
 
 Examples:
     # Run complete pipeline
@@ -26,8 +27,8 @@ Examples:
     # Run training and analysis
     python scripts/run_pipeline.py --steps train,analyze
 
-    # Skip QC plots for faster execution
-    python scripts/run_pipeline.py --skip-qc
+    # Run Steps 4-5 only
+    python scripts/run_pipeline.py --steps importance,rank
 """
 
 import sys
@@ -53,16 +54,7 @@ class PipelineRunner:
         self.step_times = {}
 
     def run_step(self, step_name: str, script_path: Path) -> bool:
-        """
-        Run a pipeline step
-
-        Args:
-            step_name: Name of the step
-            script_path: Path to Python script
-
-        Returns:
-            True if successful, False otherwise
-        """
+        """Run a pipeline step"""
         print("")
         print("=" * 80)
         print(f"RUNNING: {step_name}")
@@ -74,19 +66,18 @@ class PipelineRunner:
         step_start = time.time()
 
         try:
-            # Run script as subprocess
             result = subprocess.run(
                 [sys.executable, str(script_path)],
                 cwd=PROJECT_ROOT,
                 check=True,
-                capture_output=False  # Show output in real-time
+                capture_output=False
             )
 
             step_time = time.time() - step_start
             self.step_times[step_name] = step_time
 
             print("")
-            print(f"✓ {step_name} completed successfully")
+            print(f"OK {step_name} completed successfully")
             print(f"  Time: {step_time:.1f} seconds ({step_time/60:.1f} minutes)")
             print("=" * 80)
 
@@ -97,7 +88,7 @@ class PipelineRunner:
             self.step_times[step_name] = step_time
 
             print("")
-            print(f"✗ {step_name} FAILED")
+            print(f"FAIL {step_name} FAILED")
             print(f"  Error code: {e.returncode}")
             print(f"  Time: {step_time:.1f} seconds")
             print("=" * 80)
@@ -105,24 +96,33 @@ class PipelineRunner:
             return False
 
     def run_preparation(self) -> bool:
-        """Run data preparation step"""
         return self.run_step(
             "Step 1: Data Preparation",
             PROJECT_ROOT / "scripts" / "01_prepare_data.py"
         )
 
     def run_training(self) -> bool:
-        """Run model training step"""
         return self.run_step(
             "Step 2: Model Training",
             PROJECT_ROOT / "scripts" / "02_train_models.py"
         )
 
     def run_analysis(self) -> bool:
-        """Run results analysis step"""
         return self.run_step(
             "Step 3: Results Analysis",
             PROJECT_ROOT / "scripts" / "03_analyze_results.py"
+        )
+
+    def run_importance(self) -> bool:
+        return self.run_step(
+            "Step 4: Feature Importance",
+            PROJECT_ROOT / "scripts" / "04_ae_feature_importance.py"
+        )
+
+    def run_ranking(self) -> bool:
+        return self.run_step(
+            "Step 5: Multi-Evidence Ranking",
+            PROJECT_ROOT / "scripts" / "05_multi_evidence_ranking.py"
         )
 
     def print_summary(self):
@@ -153,20 +153,19 @@ class PipelineRunner:
 
         Args:
             steps: List of steps to run. If None, runs all steps.
-                   Options: ['prep', 'train', 'analyze']
+                   Options: ['prep', 'train', 'analyze', 'importance', 'rank']
         """
         self.start_time = time.time()
 
-        # Default to all steps
         if steps is None or 'all' in steps:
-            steps = ['prep', 'train', 'analyze']
+            steps = ['prep', 'train', 'analyze', 'importance', 'rank']
 
         print("")
-        print("╔" + "=" * 78 + "╗")
-        print("║" + " " * 15 + "HUPERZIA ANALYSIS PIPELINE" + " " * 37 + "║")
-        print("╚" + "=" * 78 + "╝")
+        print("=" * 80)
+        print("  MULTI-OMICS INTEGRATION PIPELINE")
+        print("=" * 80)
         print("")
-        print("Multi-Omics Integration Pipeline for Alkaloid Biosynthesis Gene Discovery")
+        print("Multi-Evidence Deep Learning Pipeline for Biosynthetic Gene Discovery")
         print("")
         print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"Project: {PROJECT_ROOT}")
@@ -175,38 +174,33 @@ class PipelineRunner:
 
         success = True
 
-        # Step 1: Data Preparation
-        if 'prep' in steps:
-            if not self.run_preparation():
-                print("\n✗ Pipeline aborted: Data preparation failed")
-                success = False
-                return success
+        step_map = {
+            'prep': self.run_preparation,
+            'train': self.run_training,
+            'analyze': self.run_analysis,
+            'importance': self.run_importance,
+            'rank': self.run_ranking,
+        }
 
-        # Step 2: Model Training
-        if 'train' in steps:
-            if not self.run_training():
-                print("\n✗ Pipeline aborted: Model training failed")
-                success = False
-                return success
+        for step in steps:
+            if step in step_map:
+                if not step_map[step]():
+                    print(f"\nPipeline aborted: {step} failed")
+                    success = False
+                    break
 
-        # Step 3: Results Analysis
-        if 'analyze' in steps:
-            if not self.run_analysis():
-                print("\n✗ Pipeline aborted: Results analysis failed")
-                success = False
-                return success
-
-        # Print summary
         self.print_summary()
 
         if success:
             print("")
-            print("✓ PIPELINE COMPLETED SUCCESSFULLY!")
+            print("PIPELINE COMPLETED SUCCESSFULLY!")
             print("")
             print("Next steps:")
             print("  1. Review visualizations in: outputs/figures/")
             print("  2. Check correlations in: outputs/tables/")
-            print("  3. Examine logs in: outputs/logs/")
+            print("  3. Check feature importance in: outputs/ae_importance/")
+            print("  4. Check multi-evidence ranking in: outputs/multi_evidence/")
+            print("  5. Examine logs in: outputs/logs/")
             print("")
 
         return success
@@ -224,7 +218,7 @@ def main():
         '--steps',
         type=str,
         default='all',
-        help='Comma-separated list of steps to run (prep,train,analyze,all)'
+        help='Comma-separated list of steps (prep,train,analyze,importance,rank,all)'
     )
 
     parser.add_argument(
@@ -235,21 +229,18 @@ def main():
 
     args = parser.parse_args()
 
-    # Parse steps
     if args.steps == 'all':
         steps = ['all']
     else:
         steps = [s.strip().lower() for s in args.steps.split(',')]
 
-    # Validate steps
-    valid_steps = {'prep', 'train', 'analyze', 'all'}
+    valid_steps = {'prep', 'train', 'analyze', 'importance', 'rank', 'all'}
     invalid = set(steps) - valid_steps
     if invalid:
         print(f"Error: Invalid steps: {', '.join(invalid)}")
-        print(f"Valid steps: {', '.join(valid_steps)}")
+        print(f"Valid steps: {', '.join(sorted(valid_steps))}")
         return 1
 
-    # Run pipeline
     runner = PipelineRunner(skip_qc=args.skip_qc)
     success = runner.run(steps=steps)
 

@@ -249,11 +249,11 @@ def main():
             logger.info("PART 4: FEATURE IMPORTANCE ANALYSIS (SHAP)")
             logger.info("=" * 80)
 
-            logger.info("Note: SHAP analysis may take several minutes...")
-            logger.info("Skipping SHAP for now - enable if needed")
-
-            # Uncomment to run SHAP analysis:
-            # load_and_analyze_with_shap(configs, device, gene_latent, metab_latent, metadata, logger, figures_dir)
+            logger.info("Note: Detailed feature importance analysis moved to Step 4")
+            logger.info("Run: python scripts/04_ae_feature_importance.py")
+            logger.info("  → Computes AE reconstruction & gradient importance")
+            logger.info("  → Maps GNN latent importance back to gene space")
+            logger.info("  → Outputs to outputs/ae_importance/")
         else:
             logger.info("")
             logger.info("SHAP not available - install with: mamba install -c conda-forge shap")

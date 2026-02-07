@@ -1,6 +1,6 @@
 # Autoencoder and Graph Neural Networks for Multi-Omics Integration
 
-*Latent space fusion of transcriptomic and metabolomic data for biosynthetic gene discovery*
+Multi-evidence deep learning pipeline for identifying biosynthetic pathway genes using transcriptome-metabolome integration.
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
@@ -8,49 +8,209 @@
 
 ## Overview
 
-This framework provides a deep learning pipeline for integrating multi-omics data (transcriptomics and metabolomics) to discover gene-metabolite associations and identify biosynthetic pathway candidates. The system employs:
+This framework combines statistical correlation, deep learning feature importance (AutoEncoder + GNN), and homology search (BLAST/HMM) into a **multi-evidence scoring system** to rank candidate genes involved in target metabolite biosynthesis.
 
-- **Dual Autoencoders**: Separate dimensionality reduction for gene expression and metabolite abundance data
-- **Latent Space Fusion**: Integration of learned representations for cross-omics correlation analysis
-- **Graph Neural Networks (GNN)**: Network-based analysis of gene-metabolite relationships
-- **Association Discovery**: Statistical methods to identify significant correlations and pathway candidates
+**Three Evidence Lines:**
+1. **Correlation analysis** — Pearson r between each gene and target metabolite abundance
+2. **Deep learning importance** — AutoEncoder reconstruction/gradient importance + GNN latent-to-gene mapping
+3. **Homology search** — BLAST/HMM hits against known gene families
 
-## Key Features
+## Data Flow
 
-- 🧬 **Flexible Multi-Omics Support**: Process transcriptome (RNA-seq) and metabolome (LC-MS) data
-- 🤖 **Deep Learning Architecture**: PyTorch-based autoencoders with customizable layer configurations
-- 📊 **Comprehensive Visualization**: PCA, t-SNE, correlation heatmaps, and network graphs
-- 🔬 **Biological Interpretation**: Gene annotation integration and pathway enrichment analysis
-- ⚙️ **Configurable Pipeline**: YAML-based configuration for easy experiment management
-- 📈 **Quality Control**: Built-in data validation and model performance tracking
+```
+ ┌─────────────────────────────────────────────────────────────────────────┐
+ │                     RAW DATA (N samples)                               │
+ │   Transcriptome (gene expression)        Metabolome (metabolite data)  │
+ └──────────────┬─────────────────────────────────────┬────────────────────┘
+                │                                     │
+                ▼                                     ▼
+ ┌──────────────────────────────┐  ┌──────────────────────────────┐
+ │  Step 1: Data Preparation    │  │  01_prepare_data.py          │
+ │  FPKM → log2 → z-score      │  │  intensity → log2 → z-score  │
+ └──────────────┬───────────────┘  └──────────────┬───────────────┘
+                │                                  │
+                ▼                                  ▼
+        gene_expression_matrix.csv         metabolite_matrix.csv
+          (genes × samples)                  (metabolites × samples)
+                │                                  │
+                ▼                                  ▼
+ ┌──────────────────────────────┐  ┌──────────────────────────────┐
+ │  Step 2: Model Training      │  │  02_train_models.py          │
+ │  Gene AE: genes → 64 latent │  │  Metab AE: metab → 64 latent│
+ └──────────────┬───────────────┘  └──────────────┬───────────────┘
+                │                                  │
+                ▼                                  ▼
+         gene_latent.csv                  metabolite_latent.csv
+           (N × 64)                          (N × 64)
+                │                                  │
+                └────────────┬─────────────────────┘
+                             ▼
+              ┌──────────────────────────────┐
+              │  GNN (Graph Attention Net)    │
+              │  128-dim input (64+64 concat) │
+              │  Multi-task classification:   │
+              │    Tissue / Geography / etc.  │
+              └──────────────┬───────────────┘
+                             │
+ ┌───────────────────────────┼──────────────────────────────────────┐
+ │                           │                                      │
+ │  Step 3: Analysis         │  03_analyze_results.py               │
+ │  - Latent space viz (t-SNE, UMAP, PCA)                          │
+ │  - Gene-metabolite correlations                                  │
+ │  - Target metabolite correlation analysis                        │
+ └───────────────────────────┬──────────────────────────────────────┘
+                             │
+                             ▼
+ ┌──────────────────────────────────────────────────────────────────┐
+ │  Step 4: Feature Importance         04_ae_feature_importance.py  │
+ │                                                                  │
+ │  Evidence 2a: AE Importance                                      │
+ │    - Reconstruction importance (per-gene MSE contribution)       │
+ │    - Gradient importance (∂loss/∂input)                          │
+ │    - Combined → rank-normalized score                            │
+ │                                                                  │
+ │  Evidence 2b: GNN → Gene Mapping                                 │
+ │    - GNN perturbation importance on 128-dim latent               │
+ │    - Map back to gene space via:                                 │
+ │      gnn_gene_importance[j] = Σ_k(latent_imp[k] ×               │
+ │                                    |corr(gene_j, latent_k)|)    │
+ └──────────────────────────────────────────┬───────────────────────┘
+                                            │
+                                            ▼
+ ┌──────────────────────────────────────────────────────────────────┐
+ │  Step 5: Multi-Evidence Ranking     05_multi_evidence_ranking.py │
+ │                                                                  │
+ │  Composite Score = 0.4 × Correlation (rank-normalized)           │
+ │                  + 0.3 × AE importance (rank-normalized)         │
+ │                  + 0.2 × GNN importance (rank-normalized)        │
+ │                  + 0.1 × BLAST family bonus (binary)             │
+ │                                                                  │
+ │  → All genes ranked by multi-evidence composite score            │
+ └──────────────────────────────────────────┬───────────────────────┘
+                                            │
+                         ┌──────────────────┼───────────────────┐
+                         ▼                  ▼                   ▼
+              ┌────────────────┐  ┌──────────────┐  ┌────────────────────┐
+              │ Family Integr. │  │ Novel Cands.  │  │ Experiment Targets │
+              │ FamilyA: N     │  │ Top genes for │  │ Prioritized by     │
+              │ FamilyB: M     │  │ annotation    │  │ composite score    │
+              └────────────────┘  └──────────────┘  └────────────────────┘
+```
 
-## Project Structure
+## Quick Start
+
+```bash
+# Activate environment
+conda activate omics-ae
+
+# Run complete pipeline (all 5 steps)
+python scripts/run_pipeline.py
+
+# Or run individual steps:
+python scripts/run_pipeline.py --steps prep           # Step 1 only
+python scripts/run_pipeline.py --steps train          # Step 2 only
+python scripts/run_pipeline.py --steps analyze        # Step 3 only
+python scripts/run_pipeline.py --steps importance     # Step 4 only
+python scripts/run_pipeline.py --steps rank           # Step 5 only
+
+# Combine steps:
+python scripts/run_pipeline.py --steps importance,rank
+
+# Gene family integration (after BLAST/HMM results available):
+python scripts/integrate_gene_family.py --family FamilyA --blast-file data/processed/blast_results/FamilyA_candidates.xlsx
+python scripts/integrate_gene_family.py --batch       # All families in config
+```
+
+## Directory Structure
 
 ```
 omics-ae-gnn/
-├── src/                    # Core source code
-│   ├── core/              # Base classes and utilities
-│   ├── models/            # Autoencoder and GNN model definitions
-│   ├── preprocessing/     # Data loading and transformation
-│   ├── analysis/          # Correlation and statistical analysis
-│   ├── training/          # Model training loops
-│   └── visualization/     # Plotting and result visualization
-├── scripts/               # Executable analysis scripts
-├── config/                # YAML configuration files
-├── examples/              # Example workflows and simulated data
-├── docs/                  # Documentation
-└── tests/                 # Unit tests
-
+├── config/                          # Configuration files
+│   ├── config.yaml                 # Samples, models, training params
+│   ├── paths.yaml                  # File paths (relative, portable)
+│   ├── hardware.yaml               # Device settings (MPS/CUDA/CPU)
+│   └── pipeline_params.yaml        # Evidence weights, thresholds
+│
+├── src/                             # Source code modules
+│   ├── core/                       # Core utilities
+│   │   ├── config_loader.py       # YAML config loader
+│   │   ├── device_manager.py      # Hardware abstraction (MPS/CUDA/CPU)
+│   │   └── logger.py              # Logging setup
+│   │
+│   ├── preprocessing/              # Data preprocessing
+│   │   ├── gene_processor.py      # FPKM → log2 → z-score
+│   │   ├── metabolite_processor.py # Intensity → log2 → z-score
+│   │   └── sample_metadata.py     # Sample metadata generation
+│   │
+│   ├── models/                     # Neural network architectures
+│   │   ├── autoencoder.py         # AutoEncoder (symmetric, 64-dim latent)
+│   │   └── gnn.py                 # GAT with attention export support
+│   │
+│   ├── training/                   # Training utilities
+│   │   ├── data_loader.py         # PyTorch datasets + graph construction
+│   │   └── trainer.py             # Training loop, checkpoints, early stopping
+│   │
+│   ├── analysis/                   # Analysis and interpretation
+│   │   ├── correlation_analysis.py # Gene-metabolite correlations
+│   │   ├── explainability.py      # AE/GNN feature importance
+│   │   ├── multi_evidence_scorer.py # Multi-evidence composite scoring
+│   │   ├── qc_validator.py        # Quality control validation
+│   │   └── report_generator.py    # Automated report generation
+│   │
+│   └── visualization/              # Visualization utilities
+│       ├── heatmaps.py            # Correlation heatmaps
+│       ├── plotters.py            # PCA, distribution plots
+│       └── latent_viz.py          # t-SNE, UMAP, latent space viz
+│
+├── scripts/                        # Pipeline scripts
+│   ├── run_pipeline.py            # Master pipeline runner (Steps 1-5)
+│   ├── 01_prepare_data.py         # Step 1: Preprocessing + QC
+│   ├── 02_train_models.py         # Step 2: AE + GNN training
+│   ├── 03_analyze_results.py      # Step 3: Visualization + correlations
+│   ├── 04_ae_feature_importance.py # Step 4: DL feature importance
+│   ├── 05_multi_evidence_ranking.py # Step 5: Multi-evidence ranking
+│   ├── integrate_gene_family.py   # Generic family integration
+│   └── find_target_genes.py       # Target metabolite correlation analysis
+│
+├── data/
+│   ├── raw/                       # Original data files
+│   │   ├── transcriptome/         # RNA-seq gene expression data
+│   │   ├── metabolome/            # Metabolomics profiling data
+│   │   └── integrated/            # Joint analysis data
+│   │
+│   └── processed/
+│       ├── matrices/              # Normalized expression matrices
+│       ├── latent/                # Latent representations (N × 64)
+│       ├── blast_results/         # BLAST/HMM family results (.xlsx)
+│       ├── models/                # Intermediate model artifacts
+│       └── results/               # Intermediate analysis results
+│
+├── outputs/                        # Final outputs
+│   ├── figures/                   # QC + analysis plots (PNG, 300 DPI)
+│   ├── tables/                    # Correlation tables (CSV)
+│   ├── logs/                      # Training logs + history (JSON)
+│   ├── checkpoints/               # Model checkpoints (.pt)
+│   │   ├── gene/                  # Gene AE checkpoints
+│   │   ├── metabolite/            # Metabolite AE checkpoints
+│   │   └── gnn/                   # GNN checkpoints
+│   ├── ae_importance/             # Feature importance scores
+│   ├── target_analysis/           # Target metabolite correlations
+│   ├── multi_evidence/            # Multi-evidence ranked genes
+│   └── family_integration/        # Per-family integration results
+│
+├── examples/                       # Example workflows and simulated data
+├── docs/                           # Documentation
+├── tests/                          # Unit tests
+└── README.md
 ```
 
 ## Installation
 
 ### Prerequisites
+- **macOS** with Apple Silicon (M1/M2/M3) for MPS acceleration, or **Linux/Windows** with NVIDIA GPU
+- **Python 3.8+**, **PyTorch 2.0+**
 
-- Python 3.8+
-- CUDA-capable GPU (optional, for faster training)
-
-### Setup Environment
+### Setup
 
 ```bash
 # Clone the repository
@@ -61,164 +221,157 @@ cd omics-ae-gnn
 conda env create -f environment.yaml
 conda activate omics-ae
 
-# Or use pip
-pip install -r requirements.txt
+# Or install manually
+pip install torch numpy pandas scipy scikit-learn matplotlib seaborn openpyxl pyyaml
+
+# Optional
+pip install umap-learn                     # UMAP visualization
+pip install shap                           # SHAP explainability
+
+# Verify
+python -c "import torch; print(f'PyTorch: {torch.__version__}, MPS: {torch.backends.mps.is_available()}')"
 ```
 
-### Dependencies
+## Pipeline Steps
 
-- PyTorch >= 2.0
-- NumPy, Pandas, SciPy
-- Scikit-learn
-- Matplotlib, Seaborn
-- PyTorch Geometric (for GNN)
-- PyYAML
+### Step 1: Data Preparation (`01_prepare_data.py`)
 
-## Quick Start
+- Loads gene expression (FPKM) and metabolite intensity data
+- Applies log2(x+1) transformation + z-score normalization
+- Generates sample metadata, QC plots
 
-### 1. Prepare Your Data
+| Output | Description |
+|--------|-------------|
+| `data/processed/matrices/gene_expression_matrix.csv` | Normalized gene expression matrix |
+| `data/processed/matrices/metabolite_matrix.csv` | Normalized metabolite matrix |
+| `outputs/figures/qc_*.png` | QC plots |
 
-Place your omics data in the following format:
+### Step 2: Model Training (`02_train_models.py`)
+
+- Trains gene AE and metabolite AE with configurable latent dimensions
+- Extracts latent representations for all samples
+- Trains GAT on concatenated latents with multi-task classification
+
+| Output | Description |
+|--------|-------------|
+| `data/processed/latent/gene_latent.csv` | Gene latent representations |
+| `data/processed/latent/metabolite_latent.csv` | Metabolite latent representations |
+| `outputs/checkpoints/{gene,metabolite,gnn}/` | Model checkpoints (.pt) |
+
+### Step 3: Results Analysis (`03_analyze_results.py`)
+
+- Latent space visualization (t-SNE, UMAP, PCA)
+- Gene-metabolite correlations
+- Target metabolite correlation analysis
+
+| Output | Description |
+|--------|-------------|
+| `outputs/figures/analysis_*.png` | Visualization plots |
+| `outputs/tables/top_gene_metabolite_correlations.csv` | Significant gene-metabolite pairs |
+| `outputs/target_analysis/all_gene_correlations.csv` | All gene-target correlations |
+
+### Step 4: Feature Importance (`04_ae_feature_importance.py`)
+
+This step **closes the loop** between deep learning and gene selection. It retrains models if checkpoints are missing.
+
+- **AE importance**: Reconstruction importance + gradient importance per gene, combined via rank-normalization
+- **GNN-to-gene mapping**: Perturbation-based latent importance mapped to gene space via correlation matrix: `gnn_gene_importance[j] = Σ_k(latent_imp[k] × |corr(gene_j, latent_k)|)`
+- **Latent-correlation importance**: Supplementary metric not requiring checkpoints
+
+| Output | Description |
+|--------|-------------|
+| `outputs/ae_importance/gene_ae_importance.csv` | AE importance for all genes |
+| `outputs/ae_importance/gene_gnn_importance.csv` | GNN-mapped importance for all genes |
+| `outputs/ae_importance/gene_latent_corr_importance.csv` | Latent-correlation importance |
+| `outputs/ae_importance/importance_analysis.png` | Importance distribution plots |
+
+### Step 5: Multi-Evidence Ranking (`05_multi_evidence_ranking.py`)
+
+Combines all evidence into a single composite ranking using rank-based normalization:
 
 ```
-data/raw/
-├── gene_expression.csv      # Genes (rows) × Samples (columns)
-├── metabolite_abundance.csv # Metabolites (rows) × Samples (columns)
-└── sample_metadata.csv      # Sample annotations
+Composite = 0.4 × Correlation + 0.3 × AE importance + 0.2 × GNN importance + 0.1 × BLAST bonus
 ```
 
-Or use the included data simulator:
+Weights are configurable in `config/pipeline_params.yaml`.
+
+| Output | Description |
+|--------|-------------|
+| `outputs/multi_evidence/multi_evidence_ranked_genes.csv` | All genes ranked |
+| `outputs/multi_evidence/multi_evidence_ranked_genes.xlsx` | Top genes + BLAST hits + details |
+| `outputs/multi_evidence/multi_evidence_visualization.png` | 6-panel summary figure |
+| `outputs/multi_evidence/MULTI_EVIDENCE_SUMMARY.txt` | Text summary |
+
+### Gene Family Integration (`integrate_gene_family.py`)
+
+Standalone script for integrating BLAST/HMM results with pipeline outputs. Supports any gene family.
 
 ```bash
-python examples/simulate_omics_data.py --n-samples 20 --n-genes 10000 --n-metabolites 500
+# Single family
+python scripts/integrate_gene_family.py --family FamilyA \
+    --blast-file data/processed/blast_results/FamilyA_candidates.xlsx
+
+# All families defined in config
+python scripts/integrate_gene_family.py --batch
+
+# With AE importance overlay
+python scripts/integrate_gene_family.py --family FamilyA \
+    --blast-file data/processed/blast_results/FamilyA_candidates.xlsx \
+    --ae-importance outputs/ae_importance/gene_ae_importance.csv
 ```
 
-### 2. Configure Analysis
+Outputs to `outputs/family_integration/{family_name}/`.
 
-Edit `config/config.yaml` to specify your data paths and model parameters:
+## Configuration
+
+All parameters in `config/`:
+
+| File | Contents |
+|------|----------|
+| `config.yaml` | Sample definitions, model architecture, training params |
+| `paths.yaml` | File paths (relative, portable) |
+| `hardware.yaml` | Device preferences (MPS/CUDA/CPU) |
+| `pipeline_params.yaml` | Evidence weights, gene families, thresholds |
+
+Key configurable parameters in `pipeline_params.yaml`:
 
 ```yaml
-project:
-  name: "my_omics_project"
-  description: "Multi-omics integration analysis"
+gene_ranking:
+  multi_evidence_weights:
+    correlation: 0.4      # Pearson r with target metabolite
+    ae_importance: 0.3    # AutoEncoder feature importance
+    gnn_importance: 0.2   # GNN latent-to-gene mapped importance
+    blast_bonus: 0.1      # Known family membership bonus
 
-data:
-  transcriptome:
-    path: "data/raw/gene_expression.csv"
-  metabolome:
-    path: "data/raw/metabolite_abundance.csv"
-
-model:
-  gene_autoencoder:
-    latent_dim: 128
-    hidden_dims: [2048, 512]
-  
-  metabolite_autoencoder:
-    latent_dim: 64
-    hidden_dims: [256, 128]
+  alkaloid_genes:
+    reference_genes:      # Families for batch integration
+      - "FamilyA"
+      - "FamilyB"
+      - "FamilyC"
 ```
 
-### 3. Run Analysis Pipeline
+## Hardware Acceleration
 
-```bash
-# Full pipeline: data preparation → model training → analysis
-python scripts/run_pipeline.py --config config/config.yaml
-
-# Or run individual steps
-python scripts/01_prepare_data.py
-python scripts/02_train_models.py
-python scripts/03_analyze_results.py
-```
-
-### 4. View Results
-
-Results are saved to `outputs/`:
-
-- `outputs/figures/` - Visualization plots
-- `outputs/tables/` - Correlation matrices and ranked gene lists
-- `outputs/models/` - Trained model checkpoints
-- `outputs/logs/` - Training logs and performance metrics
-
-## Usage Examples
-
-### Example 1: Basic Gene-Metabolite Correlation
-
-```python
-from src.core.pipeline import OmicsPipeline
-from src.analysis.correlation import compute_associations
-
-# Load pipeline
-pipeline = OmicsPipeline(config_path="config/config.yaml")
-
-# Train autoencoders
-pipeline.train_autoencoders()
-
-# Compute correlations in latent space
-correlations = compute_associations(
-    gene_latent=pipeline.gene_latent,
-    metabolite_latent=pipeline.metabolite_latent,
-    method="spearman"
-)
-
-# Find top associations
-top_genes = correlations.get_top_k(k=100, threshold=0.7)
-```
-
-### Example 2: Identify Pathway Candidates
-
-```python
-from src.analysis.pathway import find_candidate_genes
-
-# Find genes highly correlated with target metabolite
-candidates = find_candidate_genes(
-    target_metabolite="MET_001",
-    correlation_threshold=0.8,
-    annotation_filter="enzyme"
-)
-
-# Export results
-candidates.to_csv("outputs/tables/candidate_genes.csv")
-```
+Automatically detects and uses MPS (macOS), CUDA (Linux/Windows), or CPU. Configure in `config/hardware.yaml`.
 
 ## Methodology
 
-### 1. Data Preprocessing
+### Multi-Evidence Scoring
 
-- Normalization: Log2 transformation + Z-score standardization
-- Quality control: Remove low-variance features, handle missing values
-- Sample filtering: Based on metadata criteria
+The pipeline generates three independent lines of evidence, then combines them:
 
-### 2. Autoencoder Training
+1. **Statistical correlation**: Direct Pearson correlation between gene expression and target metabolite abundance across all samples
+2. **Deep learning importance**: AutoEncoder identifies genes that contribute most to learned latent representations; GNN validates that latent space captures biological structure (tissue/geography classification), then maps latent importance back to gene space
+3. **Homology search**: BLAST/HMM hits against known biosynthetic gene families provide a binary bonus
 
-Two separate autoencoders learn compressed representations:
+Rank-based normalization ensures each evidence type contributes proportionally regardless of scale differences.
 
-- **Gene Autoencoder**: High-dimensional gene expression → Low-dimensional latent space
-- **Metabolite Autoencoder**: Metabolite abundance → Low-dimensional latent space
+### Why This Works
 
-Loss function: MSE reconstruction loss + L1 regularization
-
-### 3. Latent Space Integration
-
-- Compute pairwise correlations between gene and metabolite latent features
-- Apply statistical significance testing (permutation tests, FDR correction)
-- Rank gene-metabolite pairs by correlation strength
-
-### 4. Graph Neural Network Analysis
-
-- Construct bipartite graph: Genes ↔ Metabolites
-- Edge weights: Correlation coefficients
-- GNN message passing to refine associations
-
-## Configuration Reference
-
-See `config/README.md` for detailed configuration options.
-
-Key parameters:
-- `model.learning_rate`: Learning rate for Adam optimizer (default: 0.001)
-- `model.batch_size`: Batch size for training (default: 32)
-- `model.epochs`: Number of training epochs (default: 100)
-- `analysis.correlation_method`: "pearson" or "spearman" (default: "spearman")
-- `analysis.significance_threshold`: P-value cutoff (default: 0.05)
+- GNN's high classification accuracy validates that AE latent spaces capture real biological signal
+- Therefore, AE-derived gene importance scores are biologically meaningful
+- Cross-validation between statistical and deep learning evidence reduces false positives
+- BLAST provides orthogonal sequence-based evidence
 
 ## Citation
 
@@ -229,7 +382,7 @@ If you use this framework in your research, please cite:
   author = {Arnold},
   title = {Autoencoder and Graph Neural Networks for Multi-Omics Integration},
   year = {2026},
-  url = {https://github.com/yourusername/omics-ae-gnn}
+  url = {https://github.com/arnold117/omics-ae-gnn}
 }
 ```
 
@@ -251,6 +404,6 @@ Contributions are welcome! Please:
 
 For questions or collaborations, please open an issue on GitHub.
 
-## Acknowledgments
+---
 
-This framework was developed for multi-omics biosynthetic pathway research. The methodology combines established deep learning techniques with domain-specific biological analysis.
+**Pipeline version:** 3.0.0

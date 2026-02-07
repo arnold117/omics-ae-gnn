@@ -1,0 +1,28 @@
+# Data Paths Configuration
+# All paths are relative to project root
+# REPLACE: Update these paths to match your data directory structure
+
+transcriptome:
+  base: "data/raw/transcriptome"
+  expression: "data/raw/transcriptome/gene_expression.csv"    # REPLACE with your file
+
+metabolome:
+  base: "data/raw/metabolome"
+  abundance: "data/raw/metabolome/metabolite_abundance.csv"    # REPLACE with your file
+
+# Output directories
+output:
+  base: "outputs"
+  processed: "data/processed"
+  models: "outputs/models"
+  figures: "outputs/figures"
+  tables: "outputs/tables"
+  logs: "outputs/logs"
+  checkpoints: "outputs/checkpoints"
+
+# Processed data subdirectories
+processed:
+  matrices: "data/processed/matrices"
+  latent: "data/processed/latent"
+  models: "data/processed/models"
+  results: "data/processed/results"
